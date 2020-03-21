@@ -2,17 +2,19 @@ from ipaddress import ip_network
 
 mariaDB = (node.os == 'debian' and node.os_version[0] >= 9)
 
-pkg_apt = {
-    "mysql-server": {
-        "installed": True,
-    },
-}
-
-svc_systemd = {
-    "mysql": {
-        'needs': ['pkg_apt:mysql-server'],
+# TODO: make version aware
+if node.os == 'debian' and node.os_version[0] >= 10:
+    svc_systemd = {
+        "mysql": {
+            'needs': ['pkg_apt:mariadb-server'],
+        }
     }
-}
+else:
+    svc_systemd = {
+        "mysql": {
+            'needs': ['pkg_apt:mysql-server'],
+        }
+    }
 
 mysql_users = {
     'root': {
@@ -51,8 +53,11 @@ for username, user in node.metadata.get('mysql', {}).get('users', {}).items():
         mysql_users[username]['db_priv'][db] = db_rights
         mysql_dbs[db] = {}
 
-for db in node.metadata.get('mysql', {}).get('dbs', {}):
-    mysql_dbs[db] = {}
+for db, db_config in node.metadata.get('mysql', {}).get('dbs', {}).items():
+    mysql_dbs[db] = {
+        'collation': db_config.get('collation', 'utf8_general_ci'),
+        'character_set': db_config.get('character_set', 'utf8'),
+    }
 
 bind_address = '127.0.0.1'
 

@@ -25,3 +25,20 @@ def add_restic_rules(metadata):
                 'mysqldump --defaults-extra-file=/etc/mysql/debian.cnf {}'.format(db)
 
     return metadata, DONE
+
+
+@metadata_processor
+def add_apt_packages(metadata):
+    if node.has_bundle("apt"):
+        metadata.setdefault('apt', {})
+        metadata['apt'].setdefault('packages', {})
+
+        if node.os == 'debian' and node.os_version[0] >= 10:
+            # install mysql-server for current os
+            metadata['apt']['packages']['mariadb-server'] = {'installed': True}
+        else:
+            # install mysql-server for current os
+            metadata['apt']['packages']['mysql-server'] = {'installed': True}
+
+    return metadata, DONE
+
