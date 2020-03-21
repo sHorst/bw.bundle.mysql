@@ -1,9 +1,20 @@
+from ipaddress import ip_network
+
+
 @metadata_processor
 def add_iptables_rules(metadata):
     if node.has_bundle('iptables'):
         allowed_hosts = set([])
         for user_name, mysql_config in metadata.get('mysql', {}).get('users', {}).items():
-            allowed_hosts.update(mysql_config.get('allowed_hosts', []))
+            for allowed_host in mysql_config.get('allowed_hosts', []):
+                try:
+                    # check if nework is ip
+                    ip_network(allowed_host)
+                    allowed_hosts.add(allowed_host)
+                except ValueError:
+                    pass
+
+            # allowed_hosts.update(mysql_config.get('allowed_hosts', []))
 
         for allowed_host in sorted(allowed_hosts):
             metadata += repo.libs.iptables.accept().chain('INPUT').source(allowed_host).tcp().dest_port(3306)
