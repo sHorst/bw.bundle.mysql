@@ -81,7 +81,8 @@ if all_v6:
 if mariaDB:
     files['/etc/mysql/mariadb.conf.d/99-custom.cnf'] = {
         'content': '[mysqld]\n'
-                   'bind-address = {}\n'.format(bind_address),
+                   'bind-address = {}\n'
+                   'max_allowed_packet = {}\n'.format(bind_address, node.metadata.get('mysql', {}).get('max_allowed_packet', '64M')),
         'content_type': 'text',
         'mode': "0644",
         'owner': "root",
