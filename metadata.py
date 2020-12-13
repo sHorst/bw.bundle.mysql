@@ -1,5 +1,19 @@
 from ipaddress import ip_network
 
+defaults = {}
+
+# add apt packages
+if node.has_bundle("apt"):
+    defaults['apt'] = {
+        'packages': {},
+    }
+    if node.os == 'debian' and node.os_version[0] >= 10:
+        # install mariadb-server for current os
+        defaults['apt']['packages']['mariadb-server'] = {'installed': True}
+    else:
+        # install mysql-server for current os
+        defaults['apt']['packages']['mysql-server'] = {'installed': True}
+
 
 @metadata_reactor
 def add_iptables_rules(metadata):
@@ -38,28 +52,3 @@ def add_restic_rules(metadata):
             'stdin_commands': restic_cmd,
         }
     }
-
-
-@metadata_reactor
-def add_apt_packages(metadata):
-    if not node.has_bundle("apt"):
-        raise DoNotRunAgain
-
-    if node.os == 'debian' and node.os_version[0] >= 10:
-        # install mysql-server for current os
-        return {
-            'apt': {
-                'packages': {
-                    'mariadb-sever': {'installed': True},
-                }
-            }
-        }
-    else:
-        # install mysql-server for current os
-        return {
-            'apt': {
-                'packages': {
-                    'mysql-sever': {'installed': True},
-                }
-            }
-        }
