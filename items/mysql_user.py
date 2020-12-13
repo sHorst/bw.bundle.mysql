@@ -419,7 +419,7 @@ class MysqlUser(Item):
         return sdict
 
     def patch_attributes(self, attributes):
-        if 'password' in attributes and attributes['password'] is not '':
+        if 'password' in attributes and attributes['password'] != '':
             attributes['password_hash'] = mysql_context.encrypt(
                 force_text(attributes['password'])
             )
