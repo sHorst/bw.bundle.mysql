@@ -9,8 +9,8 @@ Install
 To make this bundle work, you need to insert the items/mysql_db.py and items/mysql_user.py to the bw repository. This can be done with this command:
 
 ```
-ln -s ../bundles/mysql/libs/mysql_db.py items/mysql_db.py
-ln -s ../bundles/mysql/libs/mysql_user.py items/mysql_user.py
+ln -s ../bundles/mysql/items/mysql_db.py items/mysql_db.py
+ln -s ../bundles/mysql/items/mysql_user.py items/mysql_user.py
 ```
 
 Dependencies
