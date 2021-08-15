@@ -1,5 +1,5 @@
 from bundlewrap.items import Item, ItemStatus
-from bundlewrap.exceptions import BundleError
+from bundlewrap.exceptions import BundleError, RemoteException
 from passlib.apps import mysql_context
 from bundlewrap.utils.text import force_text, mark_for_translation as _
 import types
@@ -33,8 +33,42 @@ AVAILABLE_PRIVS = [
     'Create_user_priv',
     'Event_priv',
     'Trigger_priv',
-    'Create_tablespace_priv'
+    'Create_tablespace_priv',
+    'Delete_history_priv',  # MariaDB > 1.5
 ]
+
+SQL_AVAILABLE_PRIVS = {
+    'Select_priv': 'SELECT',
+    'Insert_priv': 'INSERT',
+    'Update_priv': 'UPDATE',
+    'Delete_priv': 'DELETE',
+    'Create_priv': 'CREATE',
+    'Drop_priv': 'DROP',
+    'Reload_priv': 'RELOAD',
+    'Shutdown_priv': 'SHUTDOWN',
+    'Process_priv': 'PROCESS',
+    'File_priv': 'FILE',
+    'Grant_priv': 'GRANT OPTION',
+    'References_priv': 'REFERENCES',
+    'Index_priv': 'INDEX',
+    'Alter_priv': 'ALTER',
+    'Show_db_priv': 'SHOW DATABASES',
+    'Super_priv': 'SUPER',
+    'Create_tmp_table_priv': 'CREATE TEMPORARY TABLES',
+    'Lock_tables_priv': 'LOCK TABLES',
+    'Execute_priv': 'EXECUTE',
+    'Repl_slave_priv': 'REPLICATION SLAVE',
+    'Repl_client_priv': 'REPLICATION CLIENT',
+    'Create_view_priv': 'CREATE VIEW',
+    'Show_view_priv': 'SHOW VIEW',
+    'Create_routine_priv': 'CREATE ROUTINE',
+    'Alter_routine_priv': 'ALTER ROUTINE',
+    'Create_user_priv': 'CREATE USER',
+    'Event_priv': 'EVENT',
+    'Trigger_priv': 'TRIGGER',
+    'Create_tablespace_priv': 'CREATE TABLESPACE',
+    'Delete_history_priv': 'DELETE HISTORY',  # MariaDB > 1.5
+}
 
 AVAILABLE_DB_PRIVS = [
     'Select_priv',
@@ -56,13 +90,40 @@ AVAILABLE_DB_PRIVS = [
     'Execute_priv',
     'Event_priv',
     'Trigger_priv',
+    'Delete_history_priv',  # MariaDB > 1.5
 ]
+
+SQL_AVAILABLE_DB_PRIVS = {
+    'Select_priv': 'SELECT',
+    'Insert_priv': 'INSERT',
+    'Update_priv': 'UPDATE',
+    'Delete_priv': 'DELETE',
+    'Create_priv': 'CREATE',
+    'Drop_priv': 'DROP',
+    'Grant_priv': 'GRANT OPTION',
+    'References_priv': 'REFERENCES',
+    'Index_priv': 'INDEX',
+    'Alter_priv': 'ALTER',
+    'Create_tmp_table_priv': 'CREATE TEMPORARY TABLES',
+    'Lock_tables_priv': 'LOCK TABLES',
+    'Create_view_priv': 'CREATE VIEW',
+    'Show_view_priv': 'SHOW VIEW',
+    'Create_routine_priv': 'CREATE ROUTINE',
+    'Alter_routine_priv': 'ALTER ROUTINE',
+    'Execute_priv': 'EXECUTE',
+    'Event_priv': 'EVENT',
+    'Trigger_priv': 'TRIGGER',
+    'Delete_history_priv': 'DELETE HISTORY',  # since MariaDB > 1.5
+}
 
 MYSQL_SCRIPT = "mysql --defaults-extra-file=/etc/mysql/debian.cnf"
 
 
 def run_sql(node, sql):
-    return node.run("echo \"{sql};\" | {mysql}".format(sql=sql, mysql=MYSQL_SCRIPT))
+    try:
+        return node.run("echo \"{sql};\" | {mysql}".format(sql=sql, mysql=MYSQL_SCRIPT))
+    except RemoteException:
+        return None
 
 
 def flush_right(node):
@@ -70,95 +131,86 @@ def flush_right(node):
 
 
 def delete_user(node, user):
-    run_sql(node, "DELETE FROM mysql.user WHERE User='{user}';".format(user=user))
+    res = run_sql(node, f"SELECT host FROM mysql.user WHERE User='{user}'")
+    if res is None:
+        return None
+
+    hosts = []
+    for line in res.stdout.decode().split("\n")[1:]:
+        if line == '':
+            continue
+        hosts += [line, ]
+
+    for host in hosts:
+        run_sql(node, f"DROP USER '{user}'@'{host}';")
 
 
-def delete_db_priv(node, user):
-    run_sql(node, "DELETE FROM mysql.db WHERE User='{user}';".format(user=user))
-
-
-def generate_insert_user_sql(user, host, password, priv):
-    # sql = "INSERT INTO mysql.user " \
-    #       "(Host, User, Password, {priv_fields}, ssl_type, ssl_cipher, x509_issuer, x509_subject, " \
-    #       "max_questions, max_updates, max_connections, max_user_connections, plugin, authentication_string, " \
-    #       "password_expired, is_role, default_role, max_statement_time) VALUES " \
-    #       "('{host}' ,'{user}', '{password}', '{priv}', '', '', '', ''," \
-    #       "0, 0, 0, 0, '', '', 'N', 'N', '', '0.0000')".format(
-    #             host=host,
-    #             user=user,
-    #             password=password,
-    #             priv_fields=', '.join(priv.keys()),
-    #             priv="', '".join(priv.values())
-    #       )
-    sql = "INSERT INTO mysql.user " \
-          "(Host, User, Password, {priv_fields}, ssl_type, ssl_cipher, x509_issuer, x509_subject, " \
-          "max_questions, max_updates, max_connections, max_user_connections, plugin, authentication_string) " \
-          "VALUES " \
-          "('{host}' ,'{user}', '{password}', '{priv}', '', '', '', ''," \
-          "0, 0, 0, 0, '', '')".format(
-        host=host,
-        user=user,
-        password=password,
-        priv_fields=', '.join(priv.keys()),
-        priv="', '".join(priv.values())
-    )
+def generate_insert_user_sql(user, host, password, privs):
+    sql = f"CREATE USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
+    sql += generate_grant_privileges_sql(user, host, privs)
 
     return sql
 
 
-def generate_update_user_sql(user, password, priv):
-    priv_list = []
-    for key in priv.keys():
-        priv_list.append("{} = '{}'".format(key, priv[key]))
+def generate_update_user_sql(user, host, password, privs):
+    sql = f"ALTER USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
+    sql += generate_grant_privileges_sql(user, host, privs)
 
-    sql = "UPDATE mysql.user SET " \
-          "Password='{password}', {priv} WHERE User = '{user}'".format(
-                password=password,
-                priv=', '.join(priv_list),
-                user=user,
-          )
+    return sql
+
+
+def generate_grant_privileges_sql(user, host, privs):
+    sql = ''
+    for priv, value in privs.items():
+        if priv not in SQL_AVAILABLE_PRIVS:
+            continue
+
+        priv = SQL_AVAILABLE_PRIVS[priv]
+
+        if value == 'Y':
+            sql += f"GRANT {priv} ON *.* TO '{user}'@'{host}';"
+        else:
+            sql += f"REVOKE {priv} ON *.* FROM '{user}'@'{host}';"
 
     return sql
 
 
 def generate_delete_user_sql(user, host):
-    sql = "DELETE FROM mysql.user WHERE User='{user}' and Host='{host}';".format(user=user, host=host)
+    sql = f"DROP USER '{user}'@'{host}';"
 
     return sql
 
 
-def generate_insert_db_priv_sql(user, db, host, priv):
-    sql = "INSERT INTO mysql.db " \
-          "(Host, Db, User, {priv_fields}) VALUES " \
-          "('{host}' ,'{db}', '{user}', '{priv}')".format(
-                host=host,
-                db=db,
-                user=user,
-                priv_fields=', '.join(priv.keys()),
-                priv="', '".join(priv.values())
-          )
+def generate_insert_db_priv_sql(user, db, host, privs):
+    sql = ''
+    for priv in [x for x, y in privs.items() if y == 'Y']:
+        if priv not in SQL_AVAILABLE_DB_PRIVS:
+            continue
+
+        priv = SQL_AVAILABLE_DB_PRIVS[priv]
+        sql += f"GRANT {priv} ON {db}.* TO '{user}'@'{host}'; "
 
     return sql
 
 
-def generate_update_db_priv_sql(user, db, priv):
-    priv_list = []
-    for key in priv.keys():
-        priv_list.append("{} = '{}'".format(key, priv[key]))
+def generate_update_db_priv_sql(user, db, host, privs):
+    sql = ''
+    for priv, value in privs.items():
+        if priv not in SQL_AVAILABLE_DB_PRIVS:
+            continue
 
-    sql = "UPDATE mysql.db SET " \
-          "{priv} WHERE User = '{user}' AND Db = '{db}'".format(
-                priv=', '.join(priv_list),
-                user=user,
-                db=db,
-          )
+        priv = SQL_AVAILABLE_DB_PRIVS[priv]
+
+        if value == 'Y':
+            sql += f"GRANT {priv} ON {db}.* TO '{user}'@'{host}';"
+        else:
+            sql += f"REVOKE {priv} ON {db}.* FROM '{user}'@'{host}';"
 
     return sql
 
 
 def generate_delete_db_priv_sql(user, db, host):
-    sql = "DELETE FROM mysql.db WHERE " \
-          "User='{user}' AND Db='{db}' AND Host='{host}';".format(user=user, db=db, host=host)
+    sql = f"REVOKE ALL PRIVILEGES ON {db}.* FROM '{user}'@'{host}';"
 
     return sql
 
@@ -189,7 +241,8 @@ def fix_user(node, user, attrs, create=False):
         for host in added:
             run_sql(node, generate_insert_user_sql(user, host, password, priv))
 
-        run_sql(node, generate_update_user_sql(user, password, priv))
+        for host in hosts:
+            run_sql(node, generate_update_user_sql(user, host, password, priv))
 
 
 def fix_db_priv(node, user, attrs, create=False):
@@ -224,7 +277,8 @@ def fix_db_priv(node, user, attrs, create=False):
             for host in added:
                 run_sql(node, generate_insert_db_priv_sql(user, db, host, priv))
 
-            run_sql(node, generate_update_db_priv_sql(user, db, priv))
+            for host in hosts:
+                run_sql(node, generate_update_db_priv_sql(user, db, host, priv))
 
 
 def get_user(node, user):
@@ -234,6 +288,8 @@ def get_user(node, user):
         user=user
     )
     res = run_sql(node, sql)
+    if res is None:
+        return None
 
     for line in res.stdout.decode().split("\n")[1:]:
         if '\t' not in line:
@@ -289,6 +345,8 @@ def get_user_privileges_for_dbs(node, user):
         user=user
     )
     res = run_sql(node, sql)
+    if res is None:
+        return None
 
     for line in res.stdout.decode().split("\n")[1:]:
         if '\t' not in line:
@@ -369,7 +427,7 @@ class MysqlUser(Item):
     def fix(self, status):
         if status.must_be_deleted:
             delete_user(self.node, self.name)
-            delete_db_priv(self.node, self.name)
+            # delete_db_priv(self.node, self.name)
         elif status.must_be_created:
             fix_user(self.node, self.name, self.attributes, create=True)
             fix_db_priv(self.node, self.name, self.attributes, create=True)

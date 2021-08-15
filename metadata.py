@@ -10,6 +10,7 @@ if node.has_bundle("apt"):
     if node.os == 'debian' and node.os_version[0] >= 10:
         # install mariadb-server for current os
         defaults['apt']['packages']['mariadb-server'] = {'installed': True}
+        defaults['apt']['packages']['mariadb-client'] = {'installed': True}
     else:
         # install mysql-server for current os
         defaults['apt']['packages']['mysql-server'] = {'installed': True}

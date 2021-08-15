@@ -1,5 +1,5 @@
 from bundlewrap.items import Item, ItemStatus
-from bundlewrap.exceptions import BundleError
+from bundlewrap.exceptions import BundleError, RemoteException
 from passlib.apps import mysql_context
 from bundlewrap.utils.text import force_text, mark_for_translation as _
 import types
@@ -8,7 +8,10 @@ MYSQL_SCRIPT = "mysql --defaults-extra-file=/etc/mysql/debian.cnf information_sc
 
 
 def run_sql(node, sql):
-    return node.run("echo \"{sql};\" | {mysql}".format(sql=sql, mysql=MYSQL_SCRIPT))
+    try:
+        return node.run("echo \"{sql};\" | {mysql}".format(sql=sql, mysql=MYSQL_SCRIPT))
+    except RemoteException:
+        return None
 
 
 def delete_database(node, name):
@@ -44,6 +47,8 @@ def get_database(node, name):
           "FROM SCHEMATA WHERE SCHEMA_NAME='{}'".format(name)
 
     res = run_sql(node, sql)
+    if res is None:
+        return None
 
     for line in res.stdout.decode().split("\n")[1:]:
         if '\t' not in line:

@@ -16,12 +16,7 @@ else:
         }
     }
 
-mysql_users = {
-    'root': {
-        'superuser': True,
-        'password': repo.vault.password_for("mysql_root_user_{}".format(node.name)),
-    },
-}
+mysql_users = {}
 
 mysql_dbs = {}
 files = {}
