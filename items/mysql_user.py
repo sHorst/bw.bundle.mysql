@@ -188,7 +188,7 @@ def generate_insert_db_priv_sql(user, db, host, privs):
             continue
 
         priv = SQL_AVAILABLE_DB_PRIVS[priv]
-        sql += f"GRANT {priv} ON {db}.* TO '{user}'@'{host}'; "
+        sql += f"GRANT {priv} ON \`{db}\`.* TO '{user}'@'{host}'; "
 
     return sql
 
@@ -202,15 +202,15 @@ def generate_update_db_priv_sql(user, db, host, privs):
         priv = SQL_AVAILABLE_DB_PRIVS[priv]
 
         if value == 'Y':
-            sql += f"GRANT {priv} ON {db}.* TO '{user}'@'{host}';"
+            sql += f"GRANT {priv} ON \`{db}\`.* TO '{user}'@'{host}';"
         else:
-            sql += f"REVOKE {priv} ON {db}.* FROM '{user}'@'{host}';"
+            sql += f"REVOKE {priv} ON \`{db}\`.* FROM '{user}'@'{host}';"
 
     return sql
 
 
 def generate_delete_db_priv_sql(user, db, host):
-    sql = f"REVOKE ALL PRIVILEGES ON {db}.* FROM '{user}'@'{host}';"
+    sql = f"REVOKE ALL PRIVILEGES ON \`{db}\`.* FROM '{user}'@'{host}';"
 
     return sql
 
