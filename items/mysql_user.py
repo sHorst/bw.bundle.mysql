@@ -34,7 +34,6 @@ AVAILABLE_PRIVS = [
     'Event_priv',
     'Trigger_priv',
     'Create_tablespace_priv',
-    'Delete_history_priv',  # MariaDB > 1.5
 ]
 
 SQL_AVAILABLE_PRIVS = {
@@ -67,7 +66,6 @@ SQL_AVAILABLE_PRIVS = {
     'Event_priv': 'EVENT',
     'Trigger_priv': 'TRIGGER',
     'Create_tablespace_priv': 'CREATE TABLESPACE',
-    'Delete_history_priv': 'DELETE HISTORY',  # MariaDB > 1.5
 }
 
 AVAILABLE_DB_PRIVS = [
@@ -90,7 +88,6 @@ AVAILABLE_DB_PRIVS = [
     'Execute_priv',
     'Event_priv',
     'Trigger_priv',
-    'Delete_history_priv',  # MariaDB > 1.5
 ]
 
 SQL_AVAILABLE_DB_PRIVS = {
@@ -113,7 +110,6 @@ SQL_AVAILABLE_DB_PRIVS = {
     'Execute_priv': 'EXECUTE',
     'Event_priv': 'EVENT',
     'Trigger_priv': 'TRIGGER',
-    'Delete_history_priv': 'DELETE HISTORY',  # since MariaDB > 1.5
 }
 
 MYSQL_SCRIPT = "mysql --defaults-extra-file=/etc/mysql/debian.cnf"
@@ -289,6 +285,7 @@ def get_user(node, user):
     )
     res = run_sql(node, sql)
     if res is None:
+        print(f'COULD NOT GET SQL QUERY: {sql} from {node}\n')
         return None
 
     for line in res.stdout.decode().split("\n")[1:]:
@@ -477,6 +474,9 @@ class MysqlUser(Item):
         return sdict
 
     def patch_attributes(self, attributes):
+        global AVAILABLE_PRIVS
+        global AVAILABLE_DB_PRIVS
+
         if 'password' in attributes and attributes['password'] != '':
             attributes['password_hash'] = mysql_context.encrypt(
                 force_text(attributes['password'])
@@ -497,6 +497,17 @@ class MysqlUser(Item):
                     attributes['db_priv'][db] = AVAILABLE_DB_PRIVS.copy()
                 elif type(attributes['db_priv'][db]) is not list:
                     attributes['db_priv'][db] = []
+
+        if self.node.metadata.get('mysql', {}).get('has_delete_history_priv', False):
+            AVAILABLE_PRIVS += [
+                'Delete_history_priv',  # MariaDB > 1.5
+            ]
+            SQL_AVAILABLE_PRIVS['Delete_history_priv'] = 'DELETE HISTORY'  # MariaDB > 1.5
+            AVAILABLE_DB_PRIVS += [
+                'Delete_history_priv',  # MariaDB > 1.5
+            ]
+
+            SQL_AVAILABLE_DB_PRIVS['Delete_history_priv'] = 'DELETE HISTORY'  # since MariaDB > 1.5
 
         return attributes
 

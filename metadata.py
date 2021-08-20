@@ -8,6 +8,7 @@ if node.has_bundle("apt"):
         'packages': {},
     }
     if node.os == 'debian' and node.os_version[0] >= 10:
+        defaults['mysql']['has_delete_history_priv'] = True
         # install mariadb-server for current os
         defaults['apt']['packages']['mariadb-server'] = {'installed': True}
         defaults['apt']['packages']['mariadb-client'] = {'installed': True}
