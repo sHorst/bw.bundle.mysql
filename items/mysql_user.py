@@ -498,7 +498,7 @@ class MysqlUser(Item):
                 elif type(attributes['db_priv'][db]) is not list:
                     attributes['db_priv'][db] = []
 
-        if self.node.metadata.get('mysql', {}).get('has_delete_history_priv', False):
+        if self.node.metadata.get('mysql', {}).get('has_delete_history_priv', False) and 'Delete_history_priv' not in AVAILABLE_PRIVS:
             AVAILABLE_PRIVS += [
                 'Delete_history_priv',  # MariaDB > 1.5
             ]
