@@ -4,17 +4,15 @@ mariaDB = (node.os == 'debian' and node.os_version[0] >= 9)
 
 # TODO: make version aware
 if node.os == 'debian' and node.os_version[0] >= 10:
-    svc_systemd = {
-        "mysql": {
-            'needs': ['pkg_apt:mariadb-server'],
-        }
-    }
+    pkg_name = 'mariadb-server'
 else:
-    svc_systemd = {
-        "mysql": {
-            'needs': ['pkg_apt:mysql-server'],
-        }
+    pkg_name = 'mysql-server'
+
+svc_systemd = {
+    "mysql": {
+        'needs': [f'pkg_apt:{pkg_name}'],
     }
+}
 
 mysql_users = {}
 
@@ -29,12 +27,14 @@ for username, user in node.metadata.get('mysql', {}).get('users', {}).items():
     if user.get('delete', False):
         mysql_users[username] = {
             'delete': True,
+            'needs': [f'pkg_apt:{pkg_name}'],
         }
         continue
 
     mysql_users[username] = {
         'hosts': user.get('allowed_hosts', ['127.0.0.1', '::1', 'localhost']).copy(),
         'db_priv': {},
+        'needs': [f'pkg_apt:{pkg_name}'],
     }
 
     pw_hash = user.get('password_hash', None)
@@ -63,6 +63,7 @@ for db, db_config in node.metadata.get('mysql', {}).get('dbs', {}).items():
     mysql_dbs[db] = {
         'collation': db_config.get('collation', 'utf8_general_ci'),
         'character_set': db_config.get('character_set', 'utf8'),
+        'needs': [f'pkg_apt:{pkg_name}'],
     }
 
 bind_address = '127.0.0.1'
