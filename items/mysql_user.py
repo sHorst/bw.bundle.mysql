@@ -141,27 +141,27 @@ def delete_user(node, user):
         run_sql(node, f"DROP USER '{user}'@'{host}';")
 
 
-def generate_insert_user_sql(user, host, password, privs):
+def generate_insert_user_sql(user, host, password, privs, sql_available_privileges):
     sql = f"CREATE USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
-    sql += generate_grant_privileges_sql(user, host, privs)
+    sql += generate_grant_privileges_sql(user, host, privs, sql_available_privileges)
 
     return sql
 
 
-def generate_update_user_sql(user, host, password, privs):
+def generate_update_user_sql(user, host, password, privs, sql_available_privileges):
     sql = f"ALTER USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
-    sql += generate_grant_privileges_sql(user, host, privs)
+    sql += generate_grant_privileges_sql(user, host, privs, sql_available_privileges)
 
     return sql
 
 
-def generate_grant_privileges_sql(user, host, privs):
+def generate_grant_privileges_sql(user, host, privs, sql_available_privileges):
     sql = ''
     for priv, value in privs.items():
-        if priv not in SQL_AVAILABLE_PRIVS:
+        if priv not in sql_available_privileges:
             continue
 
-        priv = SQL_AVAILABLE_PRIVS[priv]
+        priv = sql_available_privileges[priv]
 
         if value == 'Y':
             sql += f"GRANT {priv} ON *.* TO '{user}'@'{host}';"
@@ -177,25 +177,25 @@ def generate_delete_user_sql(user, host):
     return sql
 
 
-def generate_insert_db_priv_sql(user, db, host, privs):
+def generate_insert_db_priv_sql(user, db, host, privs, sql_available_db_privs):
     sql = ''
     for priv in [x for x, y in privs.items() if y == 'Y']:
-        if priv not in SQL_AVAILABLE_DB_PRIVS:
+        if priv not in sql_available_db_privs:
             continue
 
-        priv = SQL_AVAILABLE_DB_PRIVS[priv]
+        priv = sql_available_db_privs[priv]
         sql += f"GRANT {priv} ON \`{db}\`.* TO '{user}'@'{host}'; "
 
     return sql
 
 
-def generate_update_db_priv_sql(user, db, host, privs):
+def generate_update_db_priv_sql(user, db, host, privs, sql_available_db_privs):
     sql = ''
     for priv, value in privs.items():
-        if priv not in SQL_AVAILABLE_DB_PRIVS:
+        if priv not in sql_available_db_privs:
             continue
 
-        priv = SQL_AVAILABLE_DB_PRIVS[priv]
+        priv = sql_available_db_privs[priv]
 
         if value == 'Y':
             sql += f"GRANT {priv} ON \`{db}\`.* TO '{user}'@'{host}';"
@@ -211,20 +211,20 @@ def generate_delete_db_priv_sql(user, db, host):
     return sql
 
 
-def fix_user(node, user, attrs, create=False):
+def fix_user(node, user, attrs, available_privs, sql_available_privs, create=False):
     password = attrs['password_hash']
 
     priv = {}
-    for cur_priv in AVAILABLE_PRIVS:
+    for cur_priv in available_privs:
         priv[cur_priv] = "Y" if cur_priv in attrs['privileges'] else 'N'
 
     if create:
         for host in attrs['hosts']:
-            sql = generate_insert_user_sql(user, host, password, priv)
+            sql = generate_insert_user_sql(user, host, password, priv, sql_available_privs)
 
             run_sql(node, sql)
     else:
-        cur_hosts = get_user(node, user)['hosts']
+        cur_hosts = get_user(node, user, available_privs)['hosts']
         hosts = attrs['hosts']
 
         # find missing; and deleted
@@ -235,29 +235,29 @@ def fix_user(node, user, attrs, create=False):
             run_sql(node, generate_delete_user_sql(user=user, host=host))
 
         for host in added:
-            run_sql(node, generate_insert_user_sql(user, host, password, priv))
+            run_sql(node, generate_insert_user_sql(user, host, password, priv, sql_available_privs))
 
         for host in hosts:
-            run_sql(node, generate_update_user_sql(user, host, password, priv))
+            run_sql(node, generate_update_user_sql(user, host, password, priv, sql_available_privs))
 
 
-def fix_db_priv(node, user, attrs, create=False):
+def fix_db_priv(node, user, attrs, available_db_privs, sql_available_db_privs, create=False):
     if create:
         for db in attrs['db_priv']:
             priv = {}
-            for cur_priv in AVAILABLE_DB_PRIVS:
+            for cur_priv in available_db_privs:
                 priv[cur_priv] = "Y" if cur_priv in attrs['db_priv'][db] else 'N'
 
             # create new privileges for this db for all hosts
             for host in attrs['hosts']:
-                sql = generate_insert_db_priv_sql(user, db, host, priv)
+                sql = generate_insert_db_priv_sql(user, db, host, priv, sql_available_db_privs)
                 run_sql(node, sql)
     else:
-        cur_privileges = get_user_privileges_for_dbs(node, user)
+        cur_privileges = get_user_privileges_for_dbs(node, user, available_db_privs)
 
         for db in attrs['db_priv']:
             priv = {}
-            for cur_priv in AVAILABLE_DB_PRIVS:
+            for cur_priv in available_db_privs:
                 priv[cur_priv] = "Y" if cur_priv in attrs['db_priv'][db] else 'N'
 
             cur_hosts = cur_privileges.get('db_{}_hosts'.format(db), [])
@@ -271,16 +271,16 @@ def fix_db_priv(node, user, attrs, create=False):
                 run_sql(node, generate_delete_db_priv_sql(user=user, db=db, host=host))
 
             for host in added:
-                run_sql(node, generate_insert_db_priv_sql(user, db, host, priv))
+                run_sql(node, generate_insert_db_priv_sql(user, db, host, priv, sql_available_db_privs))
 
             for host in hosts:
-                run_sql(node, generate_update_db_priv_sql(user, db, host, priv))
+                run_sql(node, generate_update_db_priv_sql(user, db, host, priv, sql_available_db_privs))
 
 
-def get_user(node, user):
+def get_user(node, user, available_privs):
     users = {}
     sql = "SELECT Host, User, Password, {priv} FROM mysql.user WHERE User='{user}'".format(
-        priv=", ".join(AVAILABLE_PRIVS),
+        priv=", ".join(available_privs),
         user=user
     )
     res = run_sql(node, sql)
@@ -295,9 +295,9 @@ def get_user(node, user):
         (host, user, password, *user_privileges) = line.split('\t')
 
         privileges = []
-        for i in range(len(AVAILABLE_PRIVS)):
+        for i in range(len(available_privs)):
             if user_privileges[i].upper() == 'Y':
-                privileges.append(AVAILABLE_PRIVS[i])
+                privileges.append(available_privs[i])
 
         if user not in users:
             users[user] = {}
@@ -335,10 +335,10 @@ def get_user(node, user):
     }
 
 
-def get_user_privileges_for_dbs(node, user):
+def get_user_privileges_for_dbs(node, user, available_db_privs):
     privileges = {}
     sql = "SELECT Host, Db, User, {priv} FROM mysql.db WHERE User='{user}'".format(
-        priv=", ".join(AVAILABLE_DB_PRIVS),
+        priv=", ".join(available_db_privs),
         user=user
     )
     res = run_sql(node, sql)
@@ -352,9 +352,9 @@ def get_user_privileges_for_dbs(node, user):
         (host, db, user, *db_privileges) = line.split('\t')
 
         user_host_db_privileges = []
-        for i in range(len(AVAILABLE_DB_PRIVS)):
+        for i in range(len(available_db_privs)):
             if db_privileges[i].upper() == 'Y':
-                user_host_db_privileges.append(AVAILABLE_DB_PRIVS[i])
+                user_host_db_privileges.append(available_db_privs[i])
 
         if user not in privileges:
             privileges[user] = {}
@@ -426,11 +426,12 @@ class MysqlUser(Item):
             delete_user(self.node, self.name)
             # delete_db_priv(self.node, self.name)
         elif status.must_be_created:
-            fix_user(self.node, self.name, self.attributes, create=True)
-            fix_db_priv(self.node, self.name, self.attributes, create=True)
+            fix_user(self.node, self.name, self.attributes, self.available_privs, self.sql_available_privs, create=True)
+            fix_db_priv(self.node, self.name, self.attributes, self.available_db_privs, self.sql_available_db_privs,
+                        create=True)
         else:
-            fix_user(self.node, self.name, self.attributes)
-            fix_db_priv(self.node, self.name, self.attributes)
+            fix_user(self.node, self.name, self.attributes, self.available_privs, self.sql_available_privs)
+            fix_db_priv(self.node, self.name, self.attributes, self.available_db_privs, self.sql_available_db_privs)
 
         flush_right(self.node)
 
@@ -452,12 +453,12 @@ class MysqlUser(Item):
         return cdict
 
     def sdict(self):
-        user = get_user(self.node, self.name)
+        user = get_user(self.node, self.name, self.available_privs)
 
         if not user:
             return None
 
-        db_priv = get_user_privileges_for_dbs(self.node, self.name)
+        db_priv = get_user_privileges_for_dbs(self.node, self.name, self.available_db_privs)
 
         sdict = {
             'type': 'mysql_user',
@@ -473,9 +474,25 @@ class MysqlUser(Item):
 
         return sdict
 
+    # noinspection PyAttributeOutsideInit
     def patch_attributes(self, attributes):
-        global AVAILABLE_PRIVS
-        global AVAILABLE_DB_PRIVS
+        # import privileges into class
+        self.available_privs = AVAILABLE_PRIVS.copy()
+        self.available_db_privs = AVAILABLE_DB_PRIVS.copy()
+        self.sql_available_privs = SQL_AVAILABLE_PRIVS.copy()
+        self.sql_available_db_privs = SQL_AVAILABLE_DB_PRIVS.copy()
+
+        if self.node.os == 'debian' and self.node.os_version[0] >= 10:
+            self.available_privs += [
+                'Delete_history_priv',  # MariaDB > 1.5
+            ]
+            self.sql_available_privs['Delete_history_priv'] = 'DELETE HISTORY'  # MariaDB > 1.5
+
+            self.available_db_privs += [
+                'Delete_history_priv',  # MariaDB > 1.5
+            ]
+
+            self.sql_available_db_privs['Delete_history_priv'] = 'DELETE HISTORY'  # since MariaDB > 1.5
 
         if 'password' in attributes and attributes['password'] != '':
             attributes['password_hash'] = mysql_context.encrypt(
@@ -494,20 +511,9 @@ class MysqlUser(Item):
         if 'db_priv' in attributes:
             for db, rights in attributes['db_priv'].items():
                 if rights == 'all':
-                    attributes['db_priv'][db] = AVAILABLE_DB_PRIVS.copy()
+                    attributes['db_priv'][db] = self.available_db_privs.copy()
                 elif type(attributes['db_priv'][db]) is not list:
                     attributes['db_priv'][db] = []
-
-        if self.node.metadata.get('mysql', {}).get('has_delete_history_priv', False) and 'Delete_history_priv' not in AVAILABLE_PRIVS:
-            AVAILABLE_PRIVS += [
-                'Delete_history_priv',  # MariaDB > 1.5
-            ]
-            SQL_AVAILABLE_PRIVS['Delete_history_priv'] = 'DELETE HISTORY'  # MariaDB > 1.5
-            AVAILABLE_DB_PRIVS += [
-                'Delete_history_priv',  # MariaDB > 1.5
-            ]
-
-            SQL_AVAILABLE_DB_PRIVS['Delete_history_priv'] = 'DELETE HISTORY'  # since MariaDB > 1.5
 
         return attributes
 
