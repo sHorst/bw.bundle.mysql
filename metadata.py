@@ -48,6 +48,7 @@ def add_restic_rules(metadata):
 
     restic_cmd = {}
     db_priv = {}
+    restic_user = metadata.get('restic/user', 'restic')
 
     for db in metadata.get('mysql/dbs', []):
         restic_cmd[f'mysql_{db}.sql'] = f'mysqldump {db}'
@@ -59,7 +60,7 @@ def add_restic_rules(metadata):
         },
         'mysql': {
             'users': {
-                'restic': {
+                restic_user: {
                     'auth_type': 'unix_socket',
                     'db_priv': db_priv,
                 },
