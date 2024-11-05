@@ -112,7 +112,7 @@ SQL_AVAILABLE_DB_PRIVS = {
     'Trigger_priv': 'TRIGGER',
 }
 
-MYSQL_SCRIPT = "mysql --defaults-extra-file=/etc/mysql/debian.cnf"
+MYSQL_SCRIPT = "mysql"
 
 
 def run_sql(node, sql):
@@ -141,15 +141,21 @@ def delete_user(node, user):
         run_sql(node, f"DROP USER '{user}'@'{host}';")
 
 
-def generate_insert_user_sql(user, host, password, privs, sql_available_privileges):
-    sql = f"CREATE USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
+def generate_insert_user_sql(user, host, password, privs, auth_type, sql_available_privileges):
+    if auth_type == 'unix_socket':
+        sql = f"CREATE USER '{user}'@'{host}' IDENTIFIED VIA unix_socket;"
+    else:
+        sql = f"CREATE USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
     sql += generate_grant_privileges_sql(user, host, privs, sql_available_privileges)
 
     return sql
 
 
-def generate_update_user_sql(user, host, password, privs, sql_available_privileges):
-    sql = f"ALTER USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
+def generate_update_user_sql(user, host, password, privs, auth_type, sql_available_privileges):
+    if auth_type == 'unix_socket':
+        sql = f"ALTER USER '{user}'@'{host}' IDENTIFIED VIA unix_socket;"
+    else:
+        sql = f"ALTER USER '{user}'@'{host}' IDENTIFIED BY PASSWORD '{password}';"
     sql += generate_grant_privileges_sql(user, host, privs, sql_available_privileges)
 
     return sql
@@ -213,6 +219,7 @@ def generate_delete_db_priv_sql(user, db, host):
 
 def fix_user(node, user, attrs, available_privs, sql_available_privs, create=False):
     password = attrs['password_hash']
+    auth_type = attrs['auth_type']
 
     priv = {}
     for cur_priv in available_privs:
@@ -220,7 +227,7 @@ def fix_user(node, user, attrs, available_privs, sql_available_privs, create=Fal
 
     if create:
         for host in attrs['hosts']:
-            sql = generate_insert_user_sql(user, host, password, priv, sql_available_privs)
+            sql = generate_insert_user_sql(user, host, password, priv, auth_type, sql_available_privs)
 
             run_sql(node, sql)
     else:
@@ -235,10 +242,10 @@ def fix_user(node, user, attrs, available_privs, sql_available_privs, create=Fal
             run_sql(node, generate_delete_user_sql(user=user, host=host))
 
         for host in added:
-            run_sql(node, generate_insert_user_sql(user, host, password, priv, sql_available_privs))
+            run_sql(node, generate_insert_user_sql(user, host, password, priv, auth_type, sql_available_privs))
 
         for host in hosts:
-            run_sql(node, generate_update_user_sql(user, host, password, priv, sql_available_privs))
+            run_sql(node, generate_update_user_sql(user, host, password, priv, auth_type, sql_available_privs))
 
 
 def fix_db_priv(node, user, attrs, available_db_privs, sql_available_db_privs, create=False):
@@ -279,7 +286,7 @@ def fix_db_priv(node, user, attrs, available_db_privs, sql_available_db_privs, c
 
 def get_user(node, user, available_privs):
     users = {}
-    sql = "SELECT Host, User, Password, {priv} FROM mysql.user WHERE User='{user}'".format(
+    sql = "SELECT Host, User, Password, plugin, {priv} FROM mysql.user WHERE User='{user}'".format(
         priv=", ".join(available_privs),
         user=user
     )
@@ -292,7 +299,7 @@ def get_user(node, user, available_privs):
         if '\t' not in line:
             continue
 
-        (host, user, password, *user_privileges) = line.split('\t')
+        (host, user, password, plugin, *user_privileges) = line.split('\t')
 
         privileges = []
         for i in range(len(available_privs)):
@@ -307,6 +314,7 @@ def get_user(node, user, available_privs):
             'host': host,
             'password': password,
             'privileges': privileges,
+            'plugin': plugin,
         }
 
     if user not in users:
@@ -317,6 +325,7 @@ def get_user(node, user, available_privs):
 
     password = None
     privileges = None
+    plugin = None
     for host in hosts:
         if password is not None and password != user[host]['password']:
             password = "THE_PASSWORD_IS_DIFFERENT_WE_WANT_A_NEW_ONE"
@@ -328,10 +337,16 @@ def get_user(node, user, available_privs):
             break
         privileges = user[host]['privileges']
 
+        if plugin is not None and plugin != user[host]['plugin']:
+            plugin = "THE_PLUGIN_IS_DIFFERENT_WE_WANT_A_NEW_ONE"
+            break
+        plugin = user[host]['plugin']
+
     return {
         'password_hash': password,
         'privileges': privileges,
         'hosts': hosts,
+        'plugin': plugin,
     }
 
 
@@ -414,6 +429,7 @@ class MysqlUser(Item):
         'superuser': False,
         'hosts': ['127.0.0.1', '::1', 'localhost'].copy(),
         'db_priv': None,
+        'auth_type': 'password',
     }
     ITEM_TYPE_NAME = "mysql_user"
     REQUIRED_ATTRIBUTES = []
@@ -444,7 +460,8 @@ class MysqlUser(Item):
             'password_hash': self.attributes['password_hash'],
             'privileges': self.attributes['privileges'],
             'hosts': self.attributes['hosts'],
-            'db_priv': list(self.attributes.get('db_priv', {}).keys())
+            'db_priv': list(self.attributes.get('db_priv', {}).keys()),
+            'auth_type': self.attributes['auth_type'],
         }
 
         for db in self.attributes.get('db_priv', {}).keys():
@@ -466,6 +483,7 @@ class MysqlUser(Item):
             'privileges': user['privileges'],
             'hosts': user['hosts'],
             'db_priv': db_priv.get('db_priv', []),
+            'auth_type': user['plugin'],
         }
 
         # the keys for sdict and cdict must be the same
@@ -540,7 +558,7 @@ class MysqlUser(Item):
 
     @classmethod
     def validate_attributes(cls, bundle, item_id, attributes):
-        if not attributes.get('delete', False):
+        if not attributes.get('delete', False) and attributes.get('auth_type', 'mysql_native_password') != 'unix_socket':
             if attributes.get('password') is None and attributes.get('password_hash') is None:
                 raise BundleError(_(
                     "expected either 'password' or 'password_hash' on {item} in bundle '{bundle}'"
@@ -577,6 +595,23 @@ class MysqlUser(Item):
                     "privilege {priv} is not valid on {item} in bundle '{bundle}'"
                 ).format(
                     priv=priv,
+                    bundle=bundle.name,
+                    item=item_id,
+                ))
+
+        if attributes.get('auth_type', 'mysql_native_password') == 'unix_socket':
+            if attributes.get('password') is not None or attributes.get('password_hash') is not None:
+                raise BundleError(_(
+                    "can't define 'password' for auth_type 'unix_socket' on {item} in bundle '{bundle}'"
+                ).format(
+                    bundle=bundle.name,
+                    item=item_id,
+                ))
+            if attributes.get('hosts', []) != ['localhost']:
+                raise BundleError(_(
+                    "can't define 'hosts' other than 'localhost' for auth_type 'unix_socket' "
+                    "on {item} in bundle '{bundle}'"
+                ).format(
                     bundle=bundle.name,
                     item=item_id,
                 ))

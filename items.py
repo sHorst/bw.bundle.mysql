@@ -31,17 +31,26 @@ for username, user in node.metadata.get('mysql', {}).get('users', {}).items():
         }
         continue
 
+    auth_type = user.get('auth_type', 'mysql_native_password')
+
+    if auth_type == 'unix_socket':
+        hosts = user.get('allowed_hosts', ['localhost']).copy()
+    else:
+        hosts = user.get('allowed_hosts', ['127.0.0.1', '::1', 'localhost']).copy()
+
     mysql_users[username] = {
-        'hosts': user.get('allowed_hosts', ['127.0.0.1', '::1', 'localhost']).copy(),
+        'hosts': hosts,
         'db_priv': {},
         'needs': [f'pkg_apt:{pkg_name}'],
+        'auth_type': auth_type,
     }
 
-    pw_hash = user.get('password_hash', None)
-    if pw_hash is not None:
-        mysql_users[username]['password_hash'] = pw_hash
-    else:
-        mysql_users[username]['password'] = user.get('password', repo.vault.password_for("mysql_{}_mysql_user_{}".format(username, node.name)))
+    if auth_type != 'unix_socket':
+        pw_hash = user.get('password_hash', None)
+        if pw_hash is not None:
+            mysql_users[username]['password_hash'] = pw_hash
+        else:
+            mysql_users[username]['password'] = user.get('password', repo.vault.password_for("mysql_{}_mysql_user_{}".format(username, node.name)))
 
     for allowed_host in user.get('allowed_hosts', []):
         try:

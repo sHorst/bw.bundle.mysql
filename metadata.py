@@ -47,12 +47,22 @@ def add_restic_rules(metadata):
         raise DoNotRunAgain
 
     restic_cmd = {}
+    db_priv = {}
+
     for db in metadata.get('mysql/dbs', []):
-        restic_cmd['mysql_{}.sql'.format(db)] = \
-            'mysqldump --defaults-extra-file=/etc/mysql/debian.cnf {}'.format(db)
+        restic_cmd[f'mysql_{db}.sql'] = f'mysqldump {db}'
+        db_priv[db] = ['Select_priv', 'Lock_tables_priv', 'Show_view_priv']
 
     return {
         'restic': {
             'stdin_commands': restic_cmd,
+        },
+        'mysql': {
+            'users': {
+                'restic': {
+                    'auth_type': 'unix_socket',
+                    'db_priv': db_priv,
+                },
+            },
         }
     }
