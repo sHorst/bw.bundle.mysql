@@ -68,10 +68,17 @@ for username, user in node.metadata.get('mysql', {}).get('users', {}).items():
         mysql_users[username]['db_priv'][db] = db_rights
         mysql_dbs[db] = {}
 
+if node.os == 'debian' and node.os_version[0] >= 12:
+    default_collation = 'utf8mb3_general_ci'
+    default_character_set = 'utf8mb3'
+else:
+    default_collation = 'utf8_general_ci'
+    default_character_set = 'utf8'
+
 for db, db_config in node.metadata.get('mysql', {}).get('dbs', {}).items():
     mysql_dbs[db] = {
-        'collation': db_config.get('collation', 'utf8_general_ci'),
-        'character_set': db_config.get('character_set', 'utf8'),
+        'collation': db_config.get('collation', default_collation),
+        'character_set': db_config.get('character_set', default_character_set),
         'needs': [f'pkg_apt:{pkg_name}'],
     }
 
