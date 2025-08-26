@@ -41,6 +41,7 @@ for username, user in node.metadata.get('mysql', {}).get('users', {}).items():
     mysql_users[username] = {
         'hosts': hosts,
         'db_priv': {},
+        'privileges': user.get('privileges', []),
         'needs': [f'pkg_apt:{pkg_name}'],
         'auth_type': auth_type,
     }
