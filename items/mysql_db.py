@@ -22,7 +22,7 @@ def fix_database(node, name, attr, create=False):
     if create:
         collation = attr.get('collation', 'utf8_general_ci')
         character_set = attr.get('character_set', 'utf8')
-        sql = "CREATE DATABASE \\`{name}\\` CHARACTER SET {character_set} COLLATE {collation}".format(
+        sql = "CREATE DATABASE `{name}` CHARACTER SET {character_set} COLLATE {collation}".format(
             name=name,
             character_set=character_set,
             collation=collation,
@@ -32,7 +32,7 @@ def fix_database(node, name, attr, create=False):
     else:
         collation = attr.get('collation', 'utf8_general_ci')
         character_set = attr.get('character_set', 'utf8')
-        sql = "ALTER DATABASE \\`{name}\\` CHARACTER SET {character_set} COLLATE {collation}".format(
+        sql = "ALTER DATABASE `{name}` CHARACTER SET {character_set} COLLATE {collation}".format(
             name=name,
             character_set=character_set,
             collation=collation,
