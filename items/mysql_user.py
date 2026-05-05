@@ -112,12 +112,12 @@ SQL_AVAILABLE_DB_PRIVS = {
     'Trigger_priv': 'TRIGGER',
 }
 
-MYSQL_SCRIPT = "mysql"
+MYSQL_SCRIPT = "mysql --defaults-extra-file=/etc/mysql/debian.cnf"
 
 
 def run_sql(node, sql):
     try:
-        return node.run("echo \"{sql};\" | {mysql}".format(sql=sql, mysql=MYSQL_SCRIPT))
+        return node.run("echo \"{sql};\" | {mysql}".format(sql=sql.replace('`', '\\`'), mysql=MYSQL_SCRIPT))
     except RemoteException:
         return None
 

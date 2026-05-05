@@ -9,7 +9,7 @@ MYSQL_SCRIPT = "mysql --defaults-extra-file=/etc/mysql/debian.cnf information_sc
 
 def run_sql(node, sql):
     try:
-        return node.run("echo \"{sql};\" | {mysql}".format(sql=sql, mysql=MYSQL_SCRIPT))
+        return node.run("echo \"{sql};\" | {mysql}".format(sql=sql.replace('`', '\\`'), mysql=MYSQL_SCRIPT))
     except RemoteException:
         return None
 
